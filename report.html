@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ring Attention on CK FMHA：原理與性能</title>
+<style>
+.viz-root {
+  color-scheme: light;
+  --surface-1: var(--background, #fcfcfb); --surface-2: var(--secondary, #f0efec); --grid: var(--border, #e4e3df);
+  --text-primary: var(--foreground, #0b0b0b); --text-secondary: var(--muted-foreground, #52514e); --text-muted: var(--muted-foreground, #77766f);
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+  --good: #006300; --critical: #d03b3b;
+  --code-bg: var(--code-background, #f0efec);
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .viz-root {
+    color-scheme: dark;
+    --surface-1: var(--background, #1a1a19); --surface-2: var(--secondary, #262624); --grid: var(--border, #383835);
+    --text-primary: var(--foreground, #f0efec); --text-secondary: var(--muted-foreground, #c3c2b7); --text-muted: var(--muted-foreground, #96958d);
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+    --good: #0ca30c; --critical: #e66767; --code-bg: var(--code-background, #262624);
+  }
+}
+:root[data-theme="dark"] .viz-root {
+  color-scheme: dark;
+  --surface-1: var(--background, #1a1a19); --surface-2: var(--secondary, #262624); --grid: var(--border, #383835);
+  --text-primary: var(--foreground, #f0efec); --text-secondary: var(--muted-foreground, #c3c2b7); --text-muted: var(--muted-foreground, #96958d);
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+  --good: #0ca30c; --critical: #e66767; --code-bg: var(--code-background, #262624);
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+.viz-root { color: var(--text-primary);
+  font: 15px/1.65 system-ui, -apple-system, "Segoe UI", "Noto Sans TC", "PingFang TC", sans-serif; }
+main { max-width: 1080px; margin: 0 auto; padding: 8px 0 32px; }
+h1 { font-size: 28px; margin: 0 0 4px; }
+h2 { font-size: 21px; margin: 48px 0 8px; padding-top: 8px; border-top: 1px solid var(--grid); }
+h3 { font-size: 16px; margin: 28px 0 6px; }
+p, li { color: var(--text-primary); max-width: 78ch; }
+.sub { color: var(--text-secondary); margin: 0 0 24px; }
+.muted { color: var(--text-muted); font-size: 13px; }
+code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code-bg); padding: 12px 14px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 16px 0 8px; }
+.tile { background: var(--surface-2); border-radius: 10px; padding: 14px 16px; }
+.tile .label { color: var(--text-secondary); font-size: 13px; }
+.tile .value { font-size: 30px; font-weight: 650; margin: 2px 0; font-variant-numeric: proportional-nums; }
+.tile .note { color: var(--text-muted); font-size: 12px; }
+.row { display: flex; flex-wrap: wrap; gap: 24px; }
+.row > .cell { flex: 1 1 320px; min-width: 0; }
+.card { background: var(--surface-1); border: 1px solid var(--grid); border-radius: 10px; padding: 14px 16px; }
+.chart-title { font-weight: 600; margin: 0; }
+.chart-sub { color: var(--text-secondary); font-size: 13px; margin: 0 0 6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text-secondary); margin: 4px 0 6px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.key-rect { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.key-line { width: 16px; height: 2px; border-radius: 1px; display: inline-block; }
+svg text { fill: var(--text-secondary); font-size: 12px; }
+svg .ink { fill: var(--text-primary); }
+svg .muted { fill: var(--text-muted); }
+table { border-collapse: collapse; font-size: 13px; width: 100%; }
+th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+th { color: var(--text-secondary); font-weight: 600; }
+td:first-child, th:first-child { text-align: left; }
+.tl { text-align: left; }
+.pass { color: var(--good); font-weight: 600; }
+.fail { color: var(--critical); font-weight: 600; }
+details { margin: 10px 0; }
+summary { cursor: pointer; color: var(--text-secondary); }
+.tip { position: fixed; pointer-events: none; background: var(--surface-1); border: 1px solid var(--grid);
+  border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12); display: none; z-index: 10; min-width: 160px; }
+.tip .t-head { color: var(--text-secondary); margin-bottom: 4px; }
+.tip .t-row { display: flex; align-items: center; gap: 8px; }
+.tip .t-row b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.tip .t-row span.n { color: var(--text-secondary); }
+.hit:focus { outline: 2px solid var(--text-primary); outline-offset: 1px; }
+.formula { background: var(--code-bg); border-radius: 8px; padding: 10px 14px; font-family: ui-monospace, Menlo, monospace; font-size: 13.5px; line-height: 1.8; }
+.callout { border-left: 3px solid var(--grid); padding: 2px 12px; color: var(--text-secondary); }
+.theme-toggle { float: right; font-size: 12px; background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--grid); border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+<main>
+<button class="theme-toggle" id="themeToggle" type="button">切換深淺色</button>
+<h1>Ring Attention on CK FMHA</h1>
+<p class="sub">Zigzag ring attention（forward + backward），每個 ring step 直接呼叫 CK Tile FMHA；合併與通訊在 CK 外面（PyTorch + RCCL）。
+  量測環境見<a href="#perf">性能</a>一節。</p>
+
+<div class="tiles" id="tiles"></div>
+
+<h2 id="why">1. 為什麼要 ring attention</h2>
+<p>序列長度 S 很長時，單張 GPU 放不下或算太久。做法是把序列切成 W 份分給 W 張 GPU：每張卡的 Q 留在本地不動，K/V 沿著一個環（rank r → r+1）轉一圈。
+  轉完 W 步，每張卡的 Q 都看過全部的 K/V，得到和單卡完全相同的結果。每一步的計算都可以和「把下一份 K/V 傳過來」重疊。</p>
+
+<h2 id="zigzag">2. Zigzag 切分：讓 causal 的工作量平均</h2>
+<p>Causal attention 只有下三角要算。若把序列照順序切（rank 0 拿最前面），最後一個 rank 要算的區塊比第一個多很多，大家都得等它。
+  Zigzag 把序列切成 <b>2W</b> 塊，rank r 拿第 r 塊和第 2W−1−r 塊，一前一後互補，每個 rank 的工作量就一樣了。</p>
+<div class="row">
+  <div class="cell card"><p class="chart-title">照順序切（W = 4）</p><p class="chart-sub">格子 = (Q 塊, K 塊)；顏色 = 負責的 rank；斜線 = 對角塊（內部要 causal mask）</p><div id="mat-contig"></div></div>
+  <div class="cell card"><p class="chart-title">Zigzag 切（W = 4）</p><p class="chart-sub">rank r 持有第 r 與第 7−r 塊</p><div id="mat-zigzag"></div></div>
+</div>
+<div class="legend" id="rank-legend"></div>
+<p class="muted">下方長條是每個 rank 要算的工作量（以一個完整塊為 1、對角塊為 0.5）。照順序切最多差 7 倍；zigzag 每個 rank 都是 8。</p>
+
+<h3>每一步要算什麼（rank r，第 t 步拿到 src = (r − t) mod W 的 K/V）</h3>
+<p>本地序列長 2c（兩塊各 c）。因為 zigzag 的排法，除了第 0 步以外的每一步都<b>不需要 mask</b>，而且大小都一樣：</p>
+<table>
+  <thead><tr><th>step</th><th class="tl">條件</th><th class="tl">呼叫 CK</th><th class="tl">原因</th></tr></thead>
+  <tbody>
+    <tr><td>t = 0</td><td class="tl">自己的 K/V</td><td class="tl"><code>fwd(Q, K, V, causal)</code></td><td class="tl">兩塊在全域順序上前後排好，本地 causal 剛好正確</td></tr>
+    <tr><td>t &gt; 0</td><td class="tl">src &lt; r</td><td class="tl"><code>fwd(Q, K[:c], V[:c])</code>，無 mask</td><td class="tl">本地兩塊 Q 都在 src 的前一塊之後、都在 src 的後一塊之前</td></tr>
+    <tr><td>t &gt; 0</td><td class="tl">src &gt; r</td><td class="tl"><code>fwd(Q[c:], K, V)</code>，無 mask</td><td class="tl">只有本地後一塊 Q 看得到 src，而且看得到 src 全部</td></tr>
+  </tbody>
+</table>
+
+<h2 id="merge">3. 怎麼把每一步的結果合起來（Forward）</h2>
+<p>CK 每一步回傳兩樣東西：這一塊 K/V 算出的輸出 O<sub>t</sub>（已用這一塊自己的 softmax 分母歸一化）和 LSE<sub>t</sub> = log Σ exp(score)（fp32）。
+  有 LSE 就能把不同 K/V 塊的結果精確合併，等價於一次看完全部 K/V：</p>
+<div class="formula">
+lse<sub>new</sub> = log( exp(lse) + exp(LSE<sub>t</sub>) )<br>
+O<sub>new</sub> &nbsp;&nbsp;= O · exp(lse − lse<sub>new</sub>) + O<sub>t</sub> · exp(LSE<sub>t</sub> − lse<sub>new</sub>)
+</div>
+<p>累加器 O、lse 都用 fp32，最後才轉成 bf16。若用 bf16 逐步合併，每一步都多一次捨入。</p>
+
+<h2 id="bwd">4. Backward</h2>
+<ul>
+  <li>K/V 再沿環轉一次。每一步呼叫 CK bwd，但傳入的 out 和 LSE 是 forward 合併後的<b>全域值</b>。
+    這樣 kernel 內部的 P = exp(S − lse<sub>全域</sub>) 和 D = rowsum(dO · O<sub>全域</sub>) 都和整段 attention 一致，算出來的就是這一塊在完整梯度裡的份量。</li>
+  <li><b>dQ</b>：每一步的份量在本地用 fp32 累加。</li>
+  <li><b>dK / dV</b>：屬於某份 K/V 的梯度散落在每張卡上，所以準備一個 fp32 累加器<b>跟著那份 K/V 一起傳</b>。每張卡加上自己的份量再往下傳；轉完一圈後還差一站，多傳一次就回到擁有者手上。</li>
+</ul>
+
+<h2 id="comm">5. 通訊與計算重疊</h2>
+<p>每一步開始時先發出「把手上的 K/V 傳給下一個、從上一個收下一份」（RCCL <code>batch_isend_irecv</code>，在 RCCL 自己的 stream 上），接著馬上用目前的 K/V 算 attention，算完再等傳輸完成。只要計算比傳輸久，通訊就被藏住了。</p>
+<div class="card"><p class="chart-title">示意：一個 rank 的時間軸（非量測資料）</p><p class="chart-sub">實際每步的計算／通訊時間見第 7 節</p><div id="timeline"></div></div>
+<p>每步傳輸量 ≈ 2 · S<sub>local</sub> · H<sub>kv</sub> · D · 2 bytes，計算量 ∝ S<sub>local</sub>² · H<sub>q</sub> · D。S<sub>local</sub> 越大、H<sub>kv</sub> 越小（GQA），越容易藏住。
+  要注意 RCCL 的 P2P 是用 GPU kernel 搬資料，會佔用一些 CU，跟 attention 搶算力；改用 SDMA（copy engine）可以避免。</p>
+
+<h2 id="split">6. CK 做什麼、CK 外面做什麼</h2>
+<table>
+  <thead><tr><th>工作</th><th class="tl">實作</th></tr></thead>
+  <tbody>
+    <tr><td>每一步的 attention fwd / bwd</td><td class="tl">CK Tile FMHA（<code>ck_tile_fmha</code> 的 <code>_wrapped_fmha_forward/_backward</code>），沒有改 kernel</td></tr>
+    <tr><td>合併 O / LSE</td><td class="tl">PyTorch elementwise（fp32）</td></tr>
+    <tr><td>dQ 累加、dK/dV 累加器</td><td class="tl">PyTorch fp32 <code>+=</code></td></tr>
+    <tr><td>K/V 與 dK/dV 傳遞</td><td class="tl">RCCL <code>batch_isend_irecv</code></td></tr>
+  </tbody>
+</table>
+<p class="callout">已知的浪費：CK bwd 內部每一步都重算 D = rowsum(dO·O) 並跑一次 <code>convert_dq</code>；每一步的輸出先寫成 bf16 再讀回來累加。這些要改 CK 才能消除。</p>
+
+<h2 id="perf">7. 性能</h2>
+<p id="perf-setup" class="sub"></p>
+
+<div class="row">
+  <div class="cell card"><p class="chart-title">平行效率：Forward</p><p class="chart-sub">單卡 CK 整段時間 ÷ (W × ring 時間)；1.0 = 完美線性擴展</p><div class="legend" id="eff-legend-f"></div><div id="eff-fwd"></div></div>
+  <div class="cell card"><p class="chart-title">平行效率：Backward</p><p class="chart-sub">同上</p><div class="legend" id="eff-legend-b"></div><div id="eff-bwd"></div></div>
+</div>
+
+<h3>時間都花在哪裡（W = <span class="wmax"></span>）</h3>
+<p>同一個 ring 迴圈跑三種版本，差值就是各部分的成本：<b>CK kernel</b> = 只跑 CK 呼叫；<b>合併 / 累加</b> = 拿掉通訊的版本 − 只跑 CK；<b>未被隱藏的通訊</b> = 完整 ring − 拿掉通訊的版本。
+  三段相加就是完整 ring 的時間。標記 ◆ 是理想時間（單卡時間 ÷ W）。</p>
+<div class="legend" id="bd-legend"></div>
+<div class="row">
+  <div class="cell card"><p class="chart-title">Forward 時間分解</p><p class="chart-sub">毫秒，越短越好</p><div id="bd-fwd"></div></div>
+  <div class="cell card"><p class="chart-title">Backward 時間分解</p><p class="chart-sub">毫秒，越短越好</p><div id="bd-bwd"></div></div>
+</div>
+
+<h3>觀察</h3>
+<div id="notes"><p class="muted">GPU 目前被其他使用者佔用，性能數據尚未量測；量測完成後這一節會被覆寫。</p>
+</div>
+
+<details open><summary>全部量測數據（表格）</summary><div id="perf-table"></div></details>
+
+<h2 id="valid">8. 正確性驗證</h2>
+<p>每個 rank 用相同 seed 產生完整的 Q/K/V/dO，跑 ring 後把 out、dQ、dK、dV 收回來，和兩個參考比：<b>fp32 PyTorch</b>（標準答案）與<b>單卡 CK</b>（誤差預算）。
+  判定：ring 對 fp32 的最大誤差 ≤ 2 × 單卡 CK 對 fp32 的最大誤差 + 1e-4。另外故意丟掉一個 ring step（反向對照），測試必須判 FAIL。</p>
+<div id="valid-summary"></div>
+<details><summary>每個 case 的誤差（表格）</summary><div id="valid-table"></div></details>
+
+<p class="muted" style="margin-top:40px">程式：<code>~/ring-attn-ck</code>（ring_attn/、tests/、bench/）。報告由 <code>bench/make_report.py</code> 從量測結果產生。</p>
+</main>
+<div class="tip" id="tip" role="tooltip"></div>
+</div>
+
+<script>
+const DATA = [];
+const VALID = [{"world": 4, "case": "bf16 causal gqa", "seqlen": 2048, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": true, "dtype": "bf16", "passed": false, "errors": {"out": {"ring": 3.226, "ck1": 0.008515, "ring_vs_ck1": 3.219, "ok": false}, "dq": {"ring": 3.121, "ck1": 0.01462, "ring_vs_ck1": 3.125, "ok": false}, "dk": {"ring": 5.062, "ck1": 0.0201, "ring_vs_ck1": 5.068, "ok": false}, "dv": {"ring": 8.996, "ck1": 0.02863, "ring_vs_ck1": 9.01, "ok": false}}, "fault_step": 0}, {"world": 4, "case": "bf16 full gqa", "seqlen": 2048, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": false, "dtype": "bf16", "passed": false, "errors": {"out": {"ring": 0.2544, "ck1": 0.001623, "ring_vs_ck1": 0.2543, "ok": false}, "dq": {"ring": 0.2909, "ck1": 0.003627, "ring_vs_ck1": 0.2917, "ok": false}, "dk": {"ring": 0.4106, "ck1": 0.002936, "ring_vs_ck1": 0.4111, "ok": false}, "dv": {"ring": 0.342, "ck1": 0.001774, "ring_vs_ck1": 0.3423, "ok": false}}, "fault_step": 0}, {"world": 4, "case": "fp16 causal gqa", "seqlen": 2048, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": true, "dtype": "fp16", "passed": false, "errors": {"out": {"ring": 3.229, "ck1": 0.002517, "ring_vs_ck1": 3.227, "ok": false}, "dq": {"ring": 3.124, "ck1": 0.001441, "ring_vs_ck1": 3.123, "ok": false}, "dk": {"ring": 5.066, "ck1": 0.003336, "ring_vs_ck1": 5.068, "ok": false}, "dv": {"ring": 8.992, "ck1": 0.003203, "ring_vs_ck1": 8.995, "ok": false}}, "fault_step": 0}, {"world": 4, "case": "fp16 full gqa", "seqlen": 2048, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": false, "dtype": "fp16", "passed": false, "errors": {"out": {"ring": 0.254, "ck1": 0.0002217, "ring_vs_ck1": 0.254, "ok": false}, "dq": {"ring": 0.2897, "ck1": 0.0003158, "ring_vs_ck1": 0.2898, "ok": false}, "dk": {"ring": 0.4103, "ck1": 0.0003917, "ring_vs_ck1": 0.4104, "ok": false}, "dv": {"ring": 0.3423, "ck1": 0.0002276, "ring_vs_ck1": 0.3425, "ok": false}}, "fault_step": 0}, {"world": 4, "case": "bf16 causal mha d64 chunk200", "seqlen": 1600, "batch": 1, "hq": 8, "hkv": 8, "d": 64, "causal": true, "dtype": "bf16", "passed": false, "errors": {"out": {"ring": 3.641, "ck1": 0.006612, "ring_vs_ck1": 3.641, "ok": false}, "dq": {"ring": 2.417, "ck1": 0.01019, "ring_vs_ck1": 2.422, "ok": false}, "dk": {"ring": 2.923, "ck1": 0.01088, "ring_vs_ck1": 2.919, "ok": false}, "dv": {"ring": 4.681, "ck1": 0.01156, "ring_vs_ck1": 4.691, "ok": false}}, "fault_step": 0}, {"world": 4, "case": "bf16 causal gqa long", "seqlen": 8192, "batch": 1, "hq": 8, "hkv": 1, "d": 128, "causal": true, "dtype": "bf16", "passed": false, "errors": {"out": {"ring": 3.453, "ck1": 0.006688, "ring_vs_ck1": 3.453, "ok": false}, "dq": {"ring": 2.68, "ck1": 0.01184, "ring_vs_ck1": 2.688, "ok": false}, "dk": {"ring": 5.495, "ck1": 0.02173, "ring_vs_ck1": 5.49, "ok": false}, "dv": {"ring": 9.662, "ck1": 0.03525, "ring_vs_ck1": 9.663, "ok": false}}, "fault_step": 0}, {"world": 4, "case": "bf16 causal gqa", "seqlen": 2048, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": true, "dtype": "bf16", "passed": false, "errors": {"out": {"ring": 0.3044, "ck1": 0.008515, "ring_vs_ck1": 0.304, "ok": false}, "dq": {"ring": 0.4402, "ck1": 0.01462, "ring_vs_ck1": 0.4392, "ok": false}, "dk": {"ring": 0.5183, "ck1": 0.0201, "ring_vs_ck1": 0.5195, "ok": false}, "dv": {"ring": 0.5478, "ck1": 0.02863, "ring_vs_ck1": 0.5469, "ok": false}}, "fault_step": 3}, {"world": 4, "case": "bf16 full gqa", "seqlen": 2048, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": false, "dtype": "bf16", "passed": false, "errors": {"out": {"ring": 0.1865, "ck1": 0.001623, "ring_vs_ck1": 0.186, "ok": false}, "dq": {"ring": 0.3137, "ck1": 0.003627, "ring_vs_ck1": 0.3135, "ok": false}, "dk": {"ring": 0.3217, "ck1": 0.002936, "ring_vs_ck1": 0.3213, "ok": false}, "dv": {"ring": 0.3261, "ck1": 0.001774, "ring_vs_ck1": 0.3252, "ok": false}}, "fault_step": 3}, {"world": 4, "case": "fp16 causal gqa", "seqlen": 2048, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": true, "dtype": "fp16", "passed": false, "errors": {"out": {"ring": 0.3032, "ck1": 0.002517, "ring_vs_ck1": 0.3033, "ok": false}, "dq": {"ring": 0.44, "ck1": 0.001441, "ring_vs_ck1": 0.44, "ok": false}, "dk": {"ring": 0.5207, "ck1": 0.003336, "ring_vs_ck1": 0.5208, "ok": false}, "dv": {"ring": 0.5467, "ck1": 0.003203, "ring_vs_ck1": 0.5469, "ok": false}}, "fault_step": 3}, {"world": 4, "case": "fp16 full gqa", "seqlen": 2048, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": false, "dtype": "fp16", "passed": false, "errors": {"out": {"ring": 0.1859, "ck1": 0.0002217, "ring_vs_ck1": 0.1859, "ok": false}, "dq": {"ring": 0.3133, "ck1": 0.0003158, "ring_vs_ck1": 0.3134, "ok": false}, "dk": {"ring": 0.3226, "ck1": 0.0003917, "ring_vs_ck1": 0.3228, "ok": false}, "dv": {"ring": 0.3262, "ck1": 0.0002276, "ring_vs_ck1": 0.3261, "ok": false}}, "fault_step": 3}, {"world": 4, "case": "bf16 causal mha d64 chunk200", "seqlen": 1600, "batch": 1, "hq": 8, "hkv": 8, "d": 64, "causal": true, "dtype": "bf16", "passed": false, "errors": {"out": {"ring": 0.2952, "ck1": 0.006612, "ring_vs_ck1": 0.2954, "ok": false}, "dq": {"ring": 0.3264, "ck1": 0.01019, "ring_vs_ck1": 0.3264, "ok": false}, "dk": {"ring": 0.3771, "ck1": 0.01088, "ring_vs_ck1": 0.3779, "ok": false}, "dv": {"ring": 0.3504, "ck1": 0.01156, "ring_vs_ck1": 0.3506, "ok": false}}, "fault_step": 3}, {"world": 4, "case": "bf16 causal gqa long", "seqlen": 8192, "batch": 1, "hq": 8, "hkv": 1, "d": 128, "causal": true, "dtype": "bf16", "passed": false, "errors": {"out": {"ring": 0.1256, "ck1": 0.006688, "ring_vs_ck1": 0.1252, "ok": false}, "dq": {"ring": 0.1832, "ck1": 0.01184, "ring_vs_ck1": 0.1837, "ok": false}, "dk": {"ring": 0.3724, "ck1": 0.02173, "ring_vs_ck1": 0.3711, "ok": false}, "dv": {"ring": 0.2942, "ck1": 0.03525, "ring_vs_ck1": 0.2949, "ok": false}}, "fault_step": 3}, {"world": 2, "case": "bf16 causal gqa", "seqlen": 1024, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": true, "dtype": "bf16", "passed": true, "errors": {"out": {"ring": 0.007607, "ck1": 0.007607, "ring_vs_ck1": 0.003906, "ok": true}, "dq": {"ring": 0.01116, "ck1": 0.01116, "ring_vs_ck1": 0.003906, "ok": true}, "dk": {"ring": 0.02882, "ck1": 0.02467, "ring_vs_ck1": 0.03125, "ok": true}, "dv": {"ring": 0.04711, "ck1": 0.03672, "ring_vs_ck1": 0.0625, "ok": true}}, "fault_step": null}, {"world": 2, "case": "bf16 full gqa", "seqlen": 1024, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": false, "dtype": "bf16", "passed": true, "errors": {"out": {"ring": 0.001705, "ck1": 0.001705, "ring_vs_ck1": 0.001953, "ok": true}, "dq": {"ring": 0.002282, "ck1": 0.002165, "ring_vs_ck1": 0.001953, "ok": true}, "dk": {"ring": 0.005386, "ck1": 0.003503, "ring_vs_ck1": 0.003906, "ok": true}, "dv": {"ring": 0.003478, "ck1": 0.002605, "ring_vs_ck1": 0.003906, "ok": true}}, "fault_step": null}, {"world": 2, "case": "fp16 causal gqa", "seqlen": 1024, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": true, "dtype": "fp16", "passed": true, "errors": {"out": {"ring": 0.001953, "ck1": 0.001953, "ring_vs_ck1": 0.0004883, "ok": true}, "dq": {"ring": 0.001925, "ck1": 0.001925, "ring_vs_ck1": 0.0004883, "ok": true}, "dk": {"ring": 0.004043, "ck1": 0.002577, "ring_vs_ck1": 0.003906, "ok": true}, "dv": {"ring": 0.004931, "ck1": 0.003469, "ring_vs_ck1": 0.003906, "ok": true}}, "fault_step": null}, {"world": 2, "case": "fp16 full gqa", "seqlen": 1024, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": false, "dtype": "fp16", "passed": true, "errors": {"out": {"ring": 0.0003477, "ck1": 0.0004485, "ring_vs_ck1": 0.0004883, "ok": true}, "dq": {"ring": 0.0002875, "ck1": 0.0001987, "ring_vs_ck1": 0.0002441, "ok": true}, "dk": {"ring": 0.0004802, "ck1": 0.0004234, "ring_vs_ck1": 0.0004883, "ok": true}, "dv": {"ring": 0.0004222, "ck1": 0.0003326, "ring_vs_ck1": 0.0004883, "ok": true}}, "fault_step": null}, {"world": 2, "case": "bf16 causal mha d64 chunk200", "seqlen": 800, "batch": 1, "hq": 8, "hkv": 8, "d": 64, "causal": true, "dtype": "bf16", "passed": true, "errors": {"out": {"ring": 0.006612, "ck1": 0.006612, "ring_vs_ck1": 0.003906, "ok": true}, "dq": {"ring": 0.01019, "ck1": 0.01019, "ring_vs_ck1": 0.003906, "ok": true}, "dk": {"ring": 0.01368, "ck1": 0.009947, "ring_vs_ck1": 0.01562, "ok": true}, "dv": {"ring": 0.02691, "ck1": 0.01644, "ring_vs_ck1": 0.03125, "ok": true}}, "fault_step": null}, {"world": 2, "case": "bf16 causal gqa long", "seqlen": 4096, "batch": 1, "hq": 8, "hkv": 1, "d": 128, "causal": true, "dtype": "bf16", "passed": true, "errors": {"out": {"ring": 0.008986, "ck1": 0.008986, "ring_vs_ck1": 0.001953, "ok": true}, "dq": {"ring": 0.01111, "ck1": 0.01111, "ring_vs_ck1": 0.001953, "ok": true}, "dk": {"ring": 0.02734, "ck1": 0.03222, "ring_vs_ck1": 0.03125, "ok": true}, "dv": {"ring": 0.0407, "ck1": 0.0334, "ring_vs_ck1": 0.03125, "ok": true}}, "fault_step": null}, {"world": 4, "case": "bf16 causal gqa", "seqlen": 2048, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": true, "dtype": "bf16", "passed": true, "errors": {"out": {"ring": 0.008515, "ck1": 0.008515, "ring_vs_ck1": 0.003906, "ok": true}, "dq": {"ring": 0.01462, "ck1": 0.01462, "ring_vs_ck1": 0.007812, "ok": true}, "dk": {"ring": 0.02445, "ck1": 0.0201, "ring_vs_ck1": 0.03125, "ok": true}, "dv": {"ring": 0.03795, "ck1": 0.02863, "ring_vs_ck1": 0.03125, "ok": true}}, "fault_step": null}, {"world": 4, "case": "bf16 full gqa", "seqlen": 2048, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": false, "dtype": "bf16", "passed": true, "errors": {"out": {"ring": 0.001835, "ck1": 0.001623, "ring_vs_ck1": 0.001953, "ok": true}, "dq": {"ring": 0.003627, "ck1": 0.003627, "ring_vs_ck1": 0.003906, "ok": true}, "dk": {"ring": 0.003565, "ck1": 0.002936, "ring_vs_ck1": 0.00293, "ok": true}, "dv": {"ring": 0.00214, "ck1": 0.001774, "ring_vs_ck1": 0.001953, "ok": true}}, "fault_step": null}, {"world": 4, "case": "fp16 causal gqa", "seqlen": 2048, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": true, "dtype": "fp16", "passed": true, "errors": {"out": {"ring": 0.002517, "ck1": 0.002517, "ring_vs_ck1": 0.0009766, "ok": true}, "dq": {"ring": 0.001441, "ck1": 0.001441, "ring_vs_ck1": 0.0009766, "ok": true}, "dk": {"ring": 0.003336, "ck1": 0.003336, "ring_vs_ck1": 0.003906, "ok": true}, "dv": {"ring": 0.004663, "ck1": 0.003203, "ring_vs_ck1": 0.003906, "ok": true}}, "fault_step": null}, {"world": 4, "case": "fp16 full gqa", "seqlen": 2048, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": false, "dtype": "fp16", "passed": true, "errors": {"out": {"ring": 0.0001904, "ck1": 0.0002217, "ring_vs_ck1": 0.0002441, "ok": true}, "dq": {"ring": 0.0003462, "ck1": 0.0003158, "ring_vs_ck1": 0.0004883, "ok": true}, "dk": {"ring": 0.0004268, "ck1": 0.0003917, "ring_vs_ck1": 0.0004883, "ok": true}, "dv": {"ring": 0.0002376, "ck1": 0.0002276, "ring_vs_ck1": 0.0002441, "ok": true}}, "fault_step": null}, {"world": 4, "case": "bf16 causal mha d64 chunk200", "seqlen": 1600, "batch": 1, "hq": 8, "hkv": 8, "d": 64, "causal": true, "dtype": "bf16", "passed": true, "errors": {"out": {"ring": 0.006612, "ck1": 0.006612, "ring_vs_ck1": 0.003906, "ok": true}, "dq": {"ring": 0.01019, "ck1": 0.01019, "ring_vs_ck1": 0.003906, "ok": true}, "dk": {"ring": 0.0121, "ck1": 0.01088, "ring_vs_ck1": 0.01562, "ok": true}, "dv": {"ring": 0.0204, "ck1": 0.01156, "ring_vs_ck1": 0.03125, "ok": true}}, "fault_step": null}, {"world": 4, "case": "bf16 causal gqa long", "seqlen": 8192, "batch": 1, "hq": 8, "hkv": 1, "d": 128, "causal": true, "dtype": "bf16", "passed": true, "errors": {"out": {"ring": 0.006688, "ck1": 0.006688, "ring_vs_ck1": 0.001953, "ok": true}, "dq": {"ring": 0.01184, "ck1": 0.01184, "ring_vs_ck1": 0.003906, "ok": true}, "dk": {"ring": 0.02979, "ck1": 0.02173, "ring_vs_ck1": 0.03125, "ok": true}, "dv": {"ring": 0.0416, "ck1": 0.03525, "ring_vs_ck1": 0.03125, "ok": true}}, "fault_step": null}, {"world": 8, "case": "bf16 causal gqa", "seqlen": 4096, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": true, "dtype": "bf16", "passed": true, "errors": {"out": {"ring": 0.008402, "ck1": 0.008402, "ring_vs_ck1": 0.007812, "ok": true}, "dq": {"ring": 0.00934, "ck1": 0.00934, "ring_vs_ck1": 0.003906, "ok": true}, "dk": {"ring": 0.01883, "ck1": 0.02118, "ring_vs_ck1": 0.03125, "ok": true}, "dv": {"ring": 0.04585, "ck1": 0.03145, "ring_vs_ck1": 0.03125, "ok": true}}, "fault_step": null}, {"world": 8, "case": "bf16 full gqa", "seqlen": 4096, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": false, "dtype": "bf16", "passed": true, "errors": {"out": {"ring": 0.001074, "ck1": 0.0007224, "ring_vs_ck1": 0.001465, "ok": true}, "dq": {"ring": 0.001769, "ck1": 0.001504, "ring_vs_ck1": 0.0009766, "ok": true}, "dk": {"ring": 0.001711, "ck1": 0.001932, "ring_vs_ck1": 0.001953, "ok": true}, "dv": {"ring": 0.001444, "ck1": 0.001242, "ring_vs_ck1": 0.001953, "ok": true}}, "fault_step": null}, {"world": 8, "case": "fp16 causal gqa", "seqlen": 4096, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": true, "dtype": "fp16", "passed": true, "errors": {"out": {"ring": 0.001738, "ck1": 0.001738, "ring_vs_ck1": 0.0009766, "ok": true}, "dq": {"ring": 0.001956, "ck1": 0.001956, "ring_vs_ck1": 0.0009766, "ok": true}, "dk": {"ring": 0.002426, "ck1": 0.002177, "ring_vs_ck1": 0.003906, "ok": true}, "dv": {"ring": 0.004122, "ck1": 0.003596, "ring_vs_ck1": 0.003906, "ok": true}}, "fault_step": null}, {"world": 8, "case": "fp16 full gqa", "seqlen": 4096, "batch": 2, "hq": 8, "hkv": 2, "d": 128, "causal": false, "dtype": "fp16", "passed": true, "errors": {"out": {"ring": 0.0001693, "ck1": 0.0001374, "ring_vs_ck1": 0.0001221, "ok": true}, "dq": {"ring": 0.0001559, "ck1": 0.0001242, "ring_vs_ck1": 0.0002441, "ok": true}, "dk": {"ring": 0.0002072, "ck1": 0.0002496, "ring_vs_ck1": 0.0002441, "ok": true}, "dv": {"ring": 0.0001616, "ck1": 0.0001786, "ring_vs_ck1": 0.0002441, "ok": true}}, "fault_step": null}, {"world": 8, "case": "bf16 causal mha d64 chunk200", "seqlen": 3200, "batch": 1, "hq": 8, "hkv": 8, "d": 64, "causal": true, "dtype": "bf16", "passed": true, "errors": {"out": {"ring": 0.006612, "ck1": 0.006612, "ring_vs_ck1": 0.003906, "ok": true}, "dq": {"ring": 0.01019, "ck1": 0.01019, "ring_vs_ck1": 0.003906, "ok": true}, "dk": {"ring": 0.01229, "ck1": 0.0108, "ring_vs_ck1": 0.007812, "ok": true}, "dv": {"ring": 0.01841, "ck1": 0.01284, "ring_vs_ck1": 0.03125, "ok": true}}, "fault_step": null}, {"world": 8, "case": "bf16 causal gqa long", "seqlen": 16384, "batch": 1, "hq": 8, "hkv": 1, "d": 128, "causal": true, "dtype": "bf16", "passed": true, "errors": {"out": {"ring": 0.007778, "ck1": 0.007778, "ring_vs_ck1": 0.001953, "ok": true}, "dq": {"ring": 0.01206, "ck1": 0.01206, "ring_vs_ck1": 0.001953, "ok": true}, "dk": {"ring": 0.02839, "ck1": 0.02284, "ring_vs_ck1": 0.03125, "ok": true}, "dv": {"ring": 0.04776, "ck1": 0.03949, "ring_vs_ck1": 0.0625, "ok": true}}, "fault_step": null}];
+const NS = "http://www.w3.org/2000/svg";
+const css = (v) => getComputedStyle(document.querySelector(".viz-root")).getPropertyValue(v).trim();
+const el = (tag, attrs = {}, parent) => {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (parent) parent.appendChild(e);
+  return e;
+};
+const h = (tag, text, parent, cls) => {
+  const e = document.createElement(tag);
+  if (text !== undefined && text !== null) e.textContent = text;
+  if (cls) e.className = cls;
+  if (parent) parent.appendChild(e);
+  return e;
+};
+const fmtS = (s) => (s >= 1024 ? (s / 1024) + "K" : String(s));
+const fmt = (x, d = 2) => Number(x).toFixed(d);
+
+// ---------- tooltip ----------
+const tip = document.getElementById("tip");
+function showTip(evt, head, rows) {
+  tip.replaceChildren();
+  h("div", head, tip, "t-head");
+  for (const r of rows) {
+    const row = h("div", null, tip, "t-row");
+    if (r.color) { const k = h("span", null, row, "key-line"); k.style.background = r.color; }
+    h("b", r.value, row);
+    h("span", r.name, row, "n");
+  }
+  tip.style.display = "block";
+  let x, y;
+  if (evt.clientX !== undefined && evt.type !== "focus") { x = evt.clientX; y = evt.clientY; }
+  else { const b = evt.target.getBoundingClientRect(); x = b.right; y = b.top; }
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  tip.style.left = Math.min(x + 14, window.innerWidth - tw - 8) + "px";
+  tip.style.top = Math.max(8, Math.min(y + 14, window.innerHeight - th - 8)) + "px";
+}
+function hideTip() { tip.style.display = "none"; }
+
+// ---------- legends ----------
+function legend(id, items, kind) {
+  const box = document.getElementById(id);
+  box.replaceChildren();
+  for (const it of items) {
+    const s = h("span", null, box);
+    const k = h("span", null, s, kind === "line" ? "key-line" : "key-rect");
+    k.style.background = css(it.var);
+    s.appendChild(document.createTextNode(it.name));
+  }
+}
+
+// ---------- §2 matrices ----------
+const W4 = 4, N = 2 * W4;
+const RANK_VARS = ["--series-1", "--series-2", "--series-3", "--series-4"];
+function drawMatrix(id, ownerOf) {
+  const box = document.getElementById(id); box.replaceChildren();
+  const cell = 30, gap = 2, left = 70, top = 22, gridW = N * cell;
+  const barTop = top + gridW + 26, barH = 16;
+  const width = left + gridW + 20, height = barTop + W4 * (barH + 6) + 4;
+  const svg = el("svg", { viewBox: `0 0 ${width} ${height}`, width: "100%", role: "img", style: "max-width:340px;display:block;margin:0 auto" }, box);
+  const defs = el("defs", {}, svg);
+  const pat = el("pattern", { id: id + "-hatch", width: 6, height: 6, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" }, defs);
+  el("rect", { width: 2.2, height: 6, fill: css("--surface-1"), opacity: 0.75 }, pat);
+  el("text", { x: left + gridW / 2, y: 12, "text-anchor": "middle" }, svg).textContent = "K 塊 →";
+  const work = new Array(W4).fill(0);
+  for (let i = 0; i < N; i++) {
+    const r = ownerOf(i);
+    const lab = el("text", { x: left - 8, y: top + i * cell + cell / 2 + 4, "text-anchor": "end" }, svg);
+    lab.textContent = `Q${i} · r${r}`;
+    for (let j = 0; j < N; j++) {
+      const x = left + j * cell + gap / 2, y = top + i * cell + gap / 2, s = cell - gap;
+      if (j > i) { el("rect", { x, y, width: s, height: s, rx: 3, fill: css("--surface-2") }, svg); continue; }
+      el("rect", { x, y, width: s, height: s, rx: 3, fill: css(RANK_VARS[r]) }, svg);
+      if (j === i) el("rect", { x, y, width: s, height: s, rx: 3, fill: `url(#${id}-hatch)` }, svg);
+      work[r] += (j === i ? 0.5 : 1);
+    }
+  }
+  const maxW = 2 * N - 1, scale = (gridW) / 15;
+  for (let r = 0; r < W4; r++) {
+    const y = barTop + r * (barH + 6);
+    el("text", { x: left - 8, y: y + barH / 2 + 4, "text-anchor": "end" }, svg).textContent = `rank ${r}`;
+    const w = Math.max(2, work[r] * scale);
+    el("path", { d: `M${left},${y} h${w - 4} a4,4 0 0 1 4,4 v${barH - 8} a4,4 0 0 1 -4,4 h${-(w - 4)} z`, fill: css(RANK_VARS[r]) }, svg);
+    const t = el("text", { x: left + w + 6, y: y + barH / 2 + 4, class: "ink" }, svg); t.textContent = String(work[r]);
+  }
+}
+function drawMatrices() {
+  drawMatrix("mat-contig", (i) => Math.floor(i / 2));
+  drawMatrix("mat-zigzag", (i) => (i < W4 ? i : N - 1 - i));
+  legend("rank-legend", RANK_VARS.map((v, r) => ({ var: v, name: `rank ${r}` })), "rect");
+}
+
+// ---------- §5 timeline (schematic) ----------
+function drawTimeline() {
+  const box = document.getElementById("timeline"); box.replaceChildren();
+  const width = 640, height = 120, left = 92, laneH = 30, steps = 4, stepW = (width - left - 20) / steps;
+  const svg = el("svg", { viewBox: `0 0 ${width} ${height}`, width: "100%", role: "img" }, box);
+  const lanes = [["計算 stream", 18], ["RCCL stream", 62]];
+  for (const [name, y] of lanes) el("text", { x: left - 10, y: y + laneH / 2 + 4, "text-anchor": "end" }, svg).textContent = name;
+  for (let t = 0; t < steps; t++) {
+    const x = left + t * stepW;
+    el("rect", { x: x + 1, y: 18, width: stepW * 0.86 - 2, height: laneH, rx: 4, fill: css("--series-1") }, svg);
+    el("text", { x: x + 8, y: 18 + laneH / 2 + 4, class: "ink", style: "fill:#fff" }, svg).textContent = t === 0 ? "step 0" : `step ${t}`;
+    if (t < steps - 1) {
+      el("rect", { x: x + 1, y: 62, width: stepW * 0.62, height: laneH, rx: 4, fill: css("--series-2") }, svg);
+      el("text", { x: x + 8, y: 62 + laneH / 2 + 4, style: "fill:#fff" }, svg).textContent = `傳 KV→${t + 1}`;
+    }
+    el("line", { x1: x + stepW * 0.86, x2: x + stepW * 0.86, y1: 12, y2: 98, stroke: css("--grid"), "stroke-width": 1 }, svg);
+  }
+  el("text", { x: left, y: 112, class: "muted" }, svg).textContent = "每步結尾等 RCCL 完成（wait），下一步才換用新收到的 K/V";
+}
+
+// ---------- §7 performance ----------
+const worlds = [...new Set(DATA.map((d) => d.world))].sort((a, b) => a - b);
+const seqs = [...new Set(DATA.map((d) => d.seqlen))].sort((a, b) => a - b);
+const WMAX = worlds.length ? Math.max(...worlds) : "—";
+const W_VARS = { 2: "--series-1", 4: "--series-2", 8: "--series-3" };
+const wvar = (w) => W_VARS[w] || "--series-4";
+
+function effOf(d, dir) { return d[dir + "_single"] / (d.world * d[dir + "_ring"]); }
+
+function axisFrame(svg, x0, x1, y0, y1, yTicks, yFmt, xs, xFmt, xScale, yScale) {
+  for (const t of yTicks) {
+    const y = yScale(t);
+    el("line", { x1: x0, x2: x1, y1: y, y2: y, stroke: css("--grid"), "stroke-width": 1 }, svg);
+    el("text", { x: x0 - 6, y: y + 4, "text-anchor": "end" }, svg).textContent = yFmt(t);
+  }
+  for (const x of xs) el("text", { x: xScale(x), y: y0 + 18, "text-anchor": "middle" }, svg).textContent = xFmt(x);
+}
+
+function drawEff(id, dir, legendId) {
+  const box = document.getElementById(id); box.replaceChildren();
+  if (!DATA.length) { h("p", "尚無量測資料", box, "muted"); return; }
+  const width = 480, height = 260, L = 44, R = 64, T = 12, B = 40;
+  const svg = el("svg", { viewBox: `0 0 ${width} ${height}`, width: "100%", role: "img" }, box);
+  const xi = (s) => seqs.indexOf(s);
+  const xScale = (s) => L + (seqs.length === 1 ? (width - L - R) / 2 : xi(s) * (width - L - R) / (seqs.length - 1));
+  const vals = DATA.map((d) => effOf(d, dir));
+  const ymax = Math.max(1.0, Math.ceil(Math.max(...vals) * 5) / 5);
+  const yScale = (v) => height - B - (v / ymax) * (height - B - T);
+  const ticks = []; for (let v = 0; v <= ymax + 1e-9; v += 0.2) ticks.push(+v.toFixed(1));
+  axisFrame(svg, L, width - R, height - B, T, ticks, (v) => v.toFixed(1), seqs, fmtS, xScale, yScale);
+  el("text", { x: (L + width - R) / 2, y: height - 4, "text-anchor": "middle" }, svg).textContent = "總序列長度 S";
+  const ends = [];
+  for (const w of worlds) {
+    const pts = seqs.map((s) => DATA.find((d) => d.world === w && d.seqlen === s)).filter(Boolean);
+    if (!pts.length) continue;
+    const path = pts.map((d, i) => `${i ? "L" : "M"}${xScale(d.seqlen)},${yScale(effOf(d, dir))}`).join(" ");
+    el("path", { d: path, fill: "none", stroke: css(wvar(w)), "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+    for (const d of pts) el("circle", { cx: xScale(d.seqlen), cy: yScale(effOf(d, dir)), r: 4, fill: css(wvar(w)), stroke: css("--surface-1"), "stroke-width": 2 }, svg);
+    const last = pts[pts.length - 1];
+    ends.push({ w, y: yScale(effOf(last, dir)), v: effOf(last, dir), x: xScale(last.seqlen) });
+  }
+  // direct end labels, de-collided
+  ends.sort((a, b) => a.y - b.y);
+  for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 14) ends[i].y = ends[i - 1].y + 14;
+  for (const e of ends) el("text", { x: e.x + 8, y: e.y + 4, class: "ink" }, svg).textContent = `W=${e.w} ${e.v.toFixed(2)}`;
+  // crosshair + tooltip
+  const cross = el("line", { y1: T, y2: height - B, stroke: css("--text-muted"), "stroke-width": 1, visibility: "hidden" }, svg);
+  const hit = el("rect", { x: L - 10, y: T, width: width - L - R + 20, height: height - B - T, fill: "transparent", tabindex: 0, class: "hit" }, svg);
+  const pick = (evt) => {
+    const b = svg.getBoundingClientRect();
+    const px = (evt.clientX - b.left) * width / b.width;
+    let best = seqs[0];
+    for (const s of seqs) if (Math.abs(xScale(s) - px) < Math.abs(xScale(best) - px)) best = s;
+    return best;
+  };
+  const show = (evt, s) => {
+    cross.setAttribute("x1", xScale(s)); cross.setAttribute("x2", xScale(s)); cross.setAttribute("visibility", "visible");
+    const rows = worlds.map((w) => DATA.find((d) => d.world === w && d.seqlen === s)).filter(Boolean)
+      .map((d) => ({ color: css(wvar(d.world)), value: effOf(d, dir).toFixed(2), name: `W=${d.world}（ring ${fmt(d[dir + "_ring"])} ms，單卡 ${fmt(d[dir + "_single"])} ms）` }));
+    showTip(evt, `S = ${fmtS(s)}`, rows);
+  };
+  hit.addEventListener("pointermove", (e) => show(e, pick(e)));
+  hit.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); hideTip(); });
+  hit.addEventListener("focus", (e) => show(e, seqs[seqs.length - 1]));
+  hit.addEventListener("blur", () => { cross.setAttribute("visibility", "hidden"); hideTip(); });
+  legend(legendId, worlds.map((w) => ({ var: wvar(w), name: `W = ${w}` })), "line");
+}
+
+const SEGS = [
+  { key: "kern", name: "CK kernel", var: "--series-1" },
+  { key: "merge", name: "合併 / 累加", var: "--series-2" },
+  { key: "comm", name: "未被隱藏的通訊", var: "--series-3" },
+];
+function parts(d, dir) {
+  const kern = d[dir + "_kernels"], noc = d[dir + "_nocomm"], ring = d[dir + "_ring"];
+  return { kern, merge: Math.max(0, noc - kern), comm: Math.max(0, ring - noc), ring, ideal: d[dir + "_single"] / d.world };
+}
+
+function drawBreakdown(id, dir) {
+  const box = document.getElementById(id); box.replaceChildren();
+  const rows = seqs.map((s) => DATA.find((d) => d.world === WMAX && d.seqlen === s)).filter(Boolean);
+  if (!rows.length) { h("p", "尚無量測資料", box, "muted"); return; }
+  const width = 480, rowH = 34, L = 58, R = 70, T = 8, B = 30;
+  const height = T + rows.length * rowH + B;
+  const svg = el("svg", { viewBox: `0 0 ${width} ${height}`, width: "100%", role: "img" }, box);
+  const maxV = Math.max(...rows.map((d) => Math.max(parts(d, dir).ring, parts(d, dir).ideal)));
+  const nice = (v) => { const p = Math.pow(10, Math.floor(Math.log10(v))); for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p; };
+  const xmax = nice(maxV * 1.02);
+  const xs = (v) => L + (v / xmax) * (width - L - R);
+  for (let i = 0; i <= 4; i++) {
+    const v = xmax * i / 4, x = xs(v);
+    el("line", { x1: x, x2: x, y1: T, y2: height - B, stroke: css("--grid"), "stroke-width": 1 }, svg);
+    el("text", { x, y: height - B + 16, "text-anchor": "middle" }, svg).textContent = v >= 10 ? v.toFixed(0) : v.toFixed(1);
+  }
+  rows.forEach((d, i) => {
+    const p = parts(d, dir), y = T + i * rowH + 7, bh = 20;
+    el("text", { x: L - 8, y: y + bh / 2 + 4, "text-anchor": "end" }, svg).textContent = `S=${fmtS(d.seqlen)}`;
+    let x = L;
+    const segs = SEGS.filter((s) => p[s.key] > 0);
+    segs.forEach((s, k) => {
+      const w = xs(p[s.key]) - L;
+      const isLast = k === segs.length - 1;
+      const gap = isLast ? 0 : 2;
+      const ww = Math.max(0.5, w - gap);
+      const r = isLast ? Math.min(4, ww) : 0;
+      const dpath = `M${x},${y} h${ww - r} ${r ? `a${r},${r} 0 0 1 ${r},${r}` : ""} v${bh - 2 * r} ${r ? `a${r},${r} 0 0 1 ${-r},${r}` : ""} h${-(ww - r)} z`;
+      const seg = el("path", { d: dpath, fill: css(s.var), tabindex: 0, class: "hit" }, svg);
+      const show = (evt) => showTip(evt, `S=${fmtS(d.seqlen)}，W=${d.world}，${dir === "fwd" ? "forward" : "backward"}`, [
+        ...SEGS.map((q) => ({ color: css(q.var), value: fmt(p[q.key]) + " ms", name: q.name })),
+        { value: fmt(p.ring) + " ms", name: "完整 ring 合計" },
+        { value: fmt(p.ideal) + " ms", name: "理想（單卡 ÷ W）" },
+      ]);
+      seg.addEventListener("pointermove", show); seg.addEventListener("focus", show);
+      seg.addEventListener("pointerleave", hideTip); seg.addEventListener("blur", hideTip);
+      x += w;
+    });
+    el("text", { x: xs(p.ring) + 8, y: y + bh / 2 + 4, class: "ink" }, svg).textContent = fmt(p.ring) + " ms";
+    // ideal marker
+    const ix = xs(p.ideal);
+    el("path", { d: `M${ix},${y - 4} l4,4 l-4,4 l-4,-4 z`, fill: css("--text-primary"), stroke: css("--surface-1"), "stroke-width": 1.5 }, svg);
+  });
+  el("text", { x: (L + width - R) / 2, y: height - 2, "text-anchor": "middle" }, svg).textContent = "ms";
+}
+
+function perfTable() {
+  const box = document.getElementById("perf-table"); box.replaceChildren();
+  if (!DATA.length) return;
+  const t = h("table", null, box);
+  const hd = h("tr", null, h("thead", null, t));
+  for (const c of ["W", "S", "S/rank", "fwd ring", "fwd 不傳", "fwd 只CK", "fwd 單卡", "fwd 效率", "bwd ring", "bwd 不傳", "bwd 只CK", "bwd 單卡", "bwd 效率", "KV 傳一圈", "ring TFLOPS/卡 (fwd / bwd)"]) h("th", c, hd);
+  const tb = h("tbody", null, t);
+  for (const d of DATA) {
+    const r = h("tr", null, tb);
+    const cells = [d.world, fmtS(d.seqlen), fmtS(d.local),
+      fmt(d.fwd_ring), fmt(d.fwd_nocomm), fmt(d.fwd_kernels), fmt(d.fwd_single), effOf(d, "fwd").toFixed(2),
+      fmt(d.bwd_ring), fmt(d.bwd_nocomm), fmt(d.bwd_kernels), fmt(d.bwd_single), effOf(d, "bwd").toFixed(2),
+      fmt(d.comm_kv), `${(d.fwd_ring_tflops / d.world).toFixed(0)} / ${(d.bwd_ring_tflops / d.world).toFixed(0)}`];
+    for (const c of cells) h("td", String(c), r);
+  }
+  h("p", "時間單位 ms（中位數；跨 rank 取最大）。單卡 = CK 在一張卡上算整段序列。效率 = 單卡 ÷ (W × ring)。TFLOPS 以 causal 計算量（fwd 2·B·H·S²·D，bwd 為 2.5 倍）除以 ring 時間再除以 W。", box, "muted");
+}
+
+function tilesAndSetup() {
+  const box = document.getElementById("tiles"); box.replaceChildren();
+  const vPass = VALID.filter((v) => v.fault_step === null || v.fault_step === undefined);
+  const vFault = VALID.filter((v) => v.fault_step !== null && v.fault_step !== undefined);
+  const tile = (label, value, note) => { const t = h("div", null, box, "tile"); h("div", label, t, "label"); h("div", value, t, "value"); h("div", note, t, "note"); };
+  if (DATA.length) {
+    const big = DATA.filter((d) => d.world === WMAX).sort((a, b) => b.seqlen - a.seqlen)[0];
+    const tot = big.fwd_ring + big.bwd_ring, single = big.fwd_single + big.bwd_single;
+    tile(`W=${WMAX}、S=${fmtS(big.seqlen)} 的 fwd+bwd`, fmt(tot, 1) + " ms", `單卡算整段 ${fmt(single, 1)} ms，快 ${(single / tot).toFixed(1)} 倍`);
+    tile("平行效率（同上）", (single / (WMAX * tot)).toFixed(2), `fwd ${effOf(big, "fwd").toFixed(2)}、bwd ${effOf(big, "bwd").toFixed(2)}；1.0 = 線性`);
+    const p = parts(big, "fwd"), q = parts(big, "bwd");
+    tile("未被隱藏的通訊（同上）", fmt(p.comm + q.comm, 2) + " ms", `佔 fwd+bwd 的 ${(100 * (p.comm + q.comm) / tot).toFixed(1)}%`);
+  }
+  if (vPass.length) tile("正確性", `${vPass.filter((v) => v.passed).length}/${vPass.length}`, `cases 通過（W=${[...new Set(vPass.map((v) => v.world))].join("/")}）；反向對照 ${vFault.filter((v) => !v.passed).length}/${vFault.length} 如預期 FAIL`);
+  const d0 = DATA[0];
+  const s = document.getElementById("perf-setup");
+  s.textContent = d0 ? `量測：8 × AMD Instinct MI300X（gfx942）、ROCm 10.1、PyTorch 2.14、RCCL；bf16、causal、B=${d0.batch}、Hq=${d0.hq}、Hkv=${d0.hkv}、D=${d0.d}。每個點是 20 次的中位數（跨 rank 取最大）。機器與其他使用者共用，數字可能有幾個百分點的雜訊。` : "尚無量測資料。";
+  document.querySelectorAll(".wmax").forEach((e) => (e.textContent = WMAX));
+}
+
+function validation() {
+  const sum = document.getElementById("valid-summary"); sum.replaceChildren();
+  const tb = document.getElementById("valid-table"); tb.replaceChildren();
+  if (!VALID.length) { h("p", "尚無驗證資料", sum, "muted"); return; }
+  const groups = {};
+  for (const v of VALID) { const k = `W=${v.world}` + (v.fault_step != null ? `，丟掉 step ${v.fault_step}（反向對照）` : ""); (groups[k] = groups[k] || []).push(v); }
+  const t = h("table", null, sum);
+  const hd = h("tr", null, h("thead", null, t)); for (const c of ["設定", "通過", "預期", "結果"]) h("th", c, hd);
+  const body = h("tbody", null, t);
+  const order = Object.entries(groups).sort((a, b) => (a[1][0].fault_step != null) - (b[1][0].fault_step != null) || a[1][0].world - b[1][0].world);
+  for (const [k, vs] of order) {
+    const fault = vs[0].fault_step != null;
+    const n = vs.filter((v) => v.passed).length;
+    const good = fault ? n === 0 : n === vs.length;
+    const r = h("tr", null, body);
+    h("td", k, r); h("td", `${n}/${vs.length}`, r); h("td", fault ? "全部 FAIL" : "全部 PASS", r);
+    h("td", good ? "✓ 符合預期" : "✗ 不符合", r, good ? "pass" : "fail");
+  }
+  const t2 = h("table", null, tb);
+  const hd2 = h("tr", null, h("thead", null, t2));
+  for (const c of ["W", "case", "S", "tensor", "ring 對 fp32", "單卡 CK 對 fp32", "比值", "判定"]) h("th", c, hd2);
+  const b2 = h("tbody", null, t2);
+  for (const v of VALID.filter((v) => v.fault_step == null)) for (const [tn, e] of Object.entries(v.errors)) {
+    const r = h("tr", null, b2);
+    for (const c of [v.world, v.case, v.seqlen, tn, e.ring.toExponential(2), e.ck1.toExponential(2), (e.ring / e.ck1).toFixed(2)]) h("td", String(c), r);
+    h("td", e.ok ? "ok" : "FAIL", r, e.ok ? "pass" : "fail");
+  }
+}
+
+function render() {
+  drawMatrices(); drawTimeline(); tilesAndSetup();
+  drawEff("eff-fwd", "fwd", "eff-legend-f"); drawEff("eff-bwd", "bwd", "eff-legend-b");
+  legend("bd-legend", SEGS.map((s) => ({ var: s.var, name: s.name })), "rect");
+  drawBreakdown("bd-fwd", "fwd"); drawBreakdown("bd-bwd", "bwd");
+  perfTable(); validation();
+}
+document.getElementById("themeToggle").addEventListener("click", () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark";
+  render();
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+render();
+</script>
+</body>
+</html>

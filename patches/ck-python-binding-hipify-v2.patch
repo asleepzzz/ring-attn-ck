@@ -1,0 +1,29 @@
+diff --git a/example/ck_tile/01_fmha/python/csrc/fmha_common.hpp b/example/ck_tile/01_fmha/python/csrc/fmha_common.hpp
+index fec6c7c..57d8517 100644
+--- a/example/ck_tile/01_fmha/python/csrc/fmha_common.hpp
++++ b/example/ck_tile/01_fmha/python/csrc/fmha_common.hpp
+@@ -7,8 +7,15 @@
+ // headers.
+ #include <torch/python.h>
+ #include <torch/nn/functional.h>
++#if defined(USE_ROCM) && defined(HIPIFY_V2)
++// torch's hipify v2 does not rewrite these includes in this header; use the HIP headers
++// directly (they keep the at::cuda / c10::cuda names under hipify v2).
++#include <ATen/hip/HIPContext.h>
++#include <c10/hip/HIPGuard.h>
++#else
+ #include <ATen/cuda/CUDAContext.h>
+ #include <c10/cuda/CUDAGuard.h>
++#endif
+ #include <mutex>
+ #include <optional>
+ #include <string>
+@@ -19,6 +26,8 @@
+ 
+ #ifdef OLD_GENERATOR_PATH
+ #include <ATen/CUDAGeneratorImpl.h>
++#elif defined(USE_ROCM) && defined(HIPIFY_V2)
++#include <ATen/hip/HIPGeneratorImpl.h>
+ #else
+ #include <ATen/cuda/CUDAGeneratorImpl.h>
+ #endif

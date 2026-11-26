@@ -1,0 +1,35 @@
+W1125 19:23:49.696000 58758 torch/distributed/run.py:982] 
+W1125 19:23:49.696000 58758 torch/distributed/run.py:982] *****************************************
+W1125 19:23:49.696000 58758 torch/distributed/run.py:982] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W1125 19:23:49.696000 58758 torch/distributed/run.py:982] *****************************************
+[W=2] bf16 causal gqa (S=1024, B=2, Hq=8, Hkv=2, D=128): PASS
+    out ring-vs-fp32 7.607e-03  ck1-vs-fp32 7.607e-03  ring-vs-ck1 3.906e-03  ok
+    dq  ring-vs-fp32 1.116e-02  ck1-vs-fp32 1.116e-02  ring-vs-ck1 3.906e-03  ok
+    dk  ring-vs-fp32 2.882e-02  ck1-vs-fp32 2.467e-02  ring-vs-ck1 3.125e-02  ok
+    dv  ring-vs-fp32 4.711e-02  ck1-vs-fp32 3.672e-02  ring-vs-ck1 6.250e-02  ok
+[W=2] bf16 full gqa (S=1024, B=2, Hq=8, Hkv=2, D=128): PASS
+    out ring-vs-fp32 1.705e-03  ck1-vs-fp32 1.705e-03  ring-vs-ck1 1.953e-03  ok
+    dq  ring-vs-fp32 2.282e-03  ck1-vs-fp32 2.165e-03  ring-vs-ck1 1.953e-03  ok
+    dk  ring-vs-fp32 5.386e-03  ck1-vs-fp32 3.503e-03  ring-vs-ck1 3.906e-03  ok
+    dv  ring-vs-fp32 3.478e-03  ck1-vs-fp32 2.605e-03  ring-vs-ck1 3.906e-03  ok
+[W=2] fp16 causal gqa (S=1024, B=2, Hq=8, Hkv=2, D=128): PASS
+    out ring-vs-fp32 1.953e-03  ck1-vs-fp32 1.953e-03  ring-vs-ck1 4.883e-04  ok
+    dq  ring-vs-fp32 1.925e-03  ck1-vs-fp32 1.925e-03  ring-vs-ck1 4.883e-04  ok
+    dk  ring-vs-fp32 4.043e-03  ck1-vs-fp32 2.577e-03  ring-vs-ck1 3.906e-03  ok
+    dv  ring-vs-fp32 4.931e-03  ck1-vs-fp32 3.469e-03  ring-vs-ck1 3.906e-03  ok
+[W=2] fp16 full gqa (S=1024, B=2, Hq=8, Hkv=2, D=128): PASS
+    out ring-vs-fp32 3.477e-04  ck1-vs-fp32 4.485e-04  ring-vs-ck1 4.883e-04  ok
+    dq  ring-vs-fp32 2.875e-04  ck1-vs-fp32 1.987e-04  ring-vs-ck1 2.441e-04  ok
+    dk  ring-vs-fp32 4.802e-04  ck1-vs-fp32 4.234e-04  ring-vs-ck1 4.883e-04  ok
+    dv  ring-vs-fp32 4.222e-04  ck1-vs-fp32 3.326e-04  ring-vs-ck1 4.883e-04  ok
+[W=2] bf16 causal mha d64 chunk200 (S=800, B=1, Hq=8, Hkv=8, D=64): PASS
+    out ring-vs-fp32 6.612e-03  ck1-vs-fp32 6.612e-03  ring-vs-ck1 3.906e-03  ok
+    dq  ring-vs-fp32 1.019e-02  ck1-vs-fp32 1.019e-02  ring-vs-ck1 3.906e-03  ok
+    dk  ring-vs-fp32 1.368e-02  ck1-vs-fp32 9.947e-03  ring-vs-ck1 1.562e-02  ok
+    dv  ring-vs-fp32 2.691e-02  ck1-vs-fp32 1.644e-02  ring-vs-ck1 3.125e-02  ok
+[W=2] bf16 causal gqa long (S=4096, B=1, Hq=8, Hkv=1, D=128): PASS
+    out ring-vs-fp32 8.986e-03  ck1-vs-fp32 8.986e-03  ring-vs-ck1 1.953e-03  ok
+    dq  ring-vs-fp32 1.111e-02  ck1-vs-fp32 1.111e-02  ring-vs-ck1 1.953e-03  ok
+    dk  ring-vs-fp32 2.734e-02  ck1-vs-fp32 3.222e-02  ring-vs-ck1 3.125e-02  ok
+    dv  ring-vs-fp32 4.070e-02  ck1-vs-fp32 3.340e-02  ring-vs-ck1 3.125e-02  ok
+[W=2] 6/6 cases passed

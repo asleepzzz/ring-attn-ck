@@ -1,0 +1,31 @@
+[W=4] bf16 causal gqa (S=2048, B=2, Hq=8, Hkv=2, D=128): PASS
+    out ring-vs-fp32 8.515e-03  ck1-vs-fp32 8.515e-03  ring-vs-ck1 3.906e-03  ok
+    dq  ring-vs-fp32 1.462e-02  ck1-vs-fp32 1.462e-02  ring-vs-ck1 7.812e-03  ok
+    dk  ring-vs-fp32 2.445e-02  ck1-vs-fp32 2.010e-02  ring-vs-ck1 3.125e-02  ok
+    dv  ring-vs-fp32 3.795e-02  ck1-vs-fp32 2.863e-02  ring-vs-ck1 3.125e-02  ok
+[W=4] bf16 full gqa (S=2048, B=2, Hq=8, Hkv=2, D=128): PASS
+    out ring-vs-fp32 1.835e-03  ck1-vs-fp32 1.623e-03  ring-vs-ck1 1.953e-03  ok
+    dq  ring-vs-fp32 3.627e-03  ck1-vs-fp32 3.627e-03  ring-vs-ck1 3.906e-03  ok
+    dk  ring-vs-fp32 3.565e-03  ck1-vs-fp32 2.936e-03  ring-vs-ck1 2.930e-03  ok
+    dv  ring-vs-fp32 2.140e-03  ck1-vs-fp32 1.774e-03  ring-vs-ck1 1.953e-03  ok
+[W=4] fp16 causal gqa (S=2048, B=2, Hq=8, Hkv=2, D=128): PASS
+    out ring-vs-fp32 2.517e-03  ck1-vs-fp32 2.517e-03  ring-vs-ck1 9.766e-04  ok
+    dq  ring-vs-fp32 1.441e-03  ck1-vs-fp32 1.441e-03  ring-vs-ck1 9.766e-04  ok
+    dk  ring-vs-fp32 3.336e-03  ck1-vs-fp32 3.336e-03  ring-vs-ck1 3.906e-03  ok
+    dv  ring-vs-fp32 4.663e-03  ck1-vs-fp32 3.203e-03  ring-vs-ck1 3.906e-03  ok
+[W=4] fp16 full gqa (S=2048, B=2, Hq=8, Hkv=2, D=128): PASS
+    out ring-vs-fp32 1.904e-04  ck1-vs-fp32 2.217e-04  ring-vs-ck1 2.441e-04  ok
+    dq  ring-vs-fp32 3.462e-04  ck1-vs-fp32 3.158e-04  ring-vs-ck1 4.883e-04  ok
+    dk  ring-vs-fp32 4.268e-04  ck1-vs-fp32 3.917e-04  ring-vs-ck1 4.883e-04  ok
+    dv  ring-vs-fp32 2.376e-04  ck1-vs-fp32 2.276e-04  ring-vs-ck1 2.441e-04  ok
+[W=4] bf16 causal mha d64 chunk200 (S=1600, B=1, Hq=8, Hkv=8, D=64): PASS
+    out ring-vs-fp32 6.612e-03  ck1-vs-fp32 6.612e-03  ring-vs-ck1 3.906e-03  ok
+    dq  ring-vs-fp32 1.019e-02  ck1-vs-fp32 1.019e-02  ring-vs-ck1 3.906e-03  ok
+    dk  ring-vs-fp32 1.210e-02  ck1-vs-fp32 1.088e-02  ring-vs-ck1 1.562e-02  ok
+    dv  ring-vs-fp32 2.040e-02  ck1-vs-fp32 1.156e-02  ring-vs-ck1 3.125e-02  ok
+[W=4] bf16 causal gqa long (S=8192, B=1, Hq=8, Hkv=1, D=128): PASS
+    out ring-vs-fp32 6.688e-03  ck1-vs-fp32 6.688e-03  ring-vs-ck1 1.953e-03  ok
+    dq  ring-vs-fp32 1.184e-02  ck1-vs-fp32 1.184e-02  ring-vs-ck1 3.906e-03  ok
+    dk  ring-vs-fp32 2.979e-02  ck1-vs-fp32 2.173e-02  ring-vs-ck1 3.125e-02  ok
+    dv  ring-vs-fp32 4.160e-02  ck1-vs-fp32 3.525e-02  ring-vs-ck1 3.125e-02  ok
+[W=4] 6/6 cases passed

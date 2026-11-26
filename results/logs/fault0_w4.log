@@ -1,0 +1,91 @@
+W1125 19:23:09.957000 58246 torch/distributed/run.py:982] 
+W1125 19:23:09.957000 58246 torch/distributed/run.py:982] *****************************************
+W1125 19:23:09.957000 58246 torch/distributed/run.py:982] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W1125 19:23:09.957000 58246 torch/distributed/run.py:982] *****************************************
+[W=4] bf16 causal gqa (S=2048, B=2, Hq=8, Hkv=2, D=128): FAIL
+    out ring-vs-fp32 3.226e+00  ck1-vs-fp32 8.515e-03  ring-vs-ck1 3.219e+00  FAIL
+    dq  ring-vs-fp32 3.121e+00  ck1-vs-fp32 1.462e-02  ring-vs-ck1 3.125e+00  FAIL
+    dk  ring-vs-fp32 5.062e+00  ck1-vs-fp32 2.010e-02  ring-vs-ck1 5.068e+00  FAIL
+    dv  ring-vs-fp32 8.996e+00  ck1-vs-fp32 2.863e-02  ring-vs-ck1 9.010e+00  FAIL
+[W=4] bf16 full gqa (S=2048, B=2, Hq=8, Hkv=2, D=128): FAIL
+    out ring-vs-fp32 2.544e-01  ck1-vs-fp32 1.623e-03  ring-vs-ck1 2.543e-01  FAIL
+    dq  ring-vs-fp32 2.909e-01  ck1-vs-fp32 3.627e-03  ring-vs-ck1 2.917e-01  FAIL
+    dk  ring-vs-fp32 4.106e-01  ck1-vs-fp32 2.936e-03  ring-vs-ck1 4.111e-01  FAIL
+    dv  ring-vs-fp32 3.420e-01  ck1-vs-fp32 1.774e-03  ring-vs-ck1 3.423e-01  FAIL
+[W=4] fp16 causal gqa (S=2048, B=2, Hq=8, Hkv=2, D=128): FAIL
+    out ring-vs-fp32 3.229e+00  ck1-vs-fp32 2.517e-03  ring-vs-ck1 3.227e+00  FAIL
+    dq  ring-vs-fp32 3.124e+00  ck1-vs-fp32 1.441e-03  ring-vs-ck1 3.123e+00  FAIL
+    dk  ring-vs-fp32 5.066e+00  ck1-vs-fp32 3.336e-03  ring-vs-ck1 5.068e+00  FAIL
+    dv  ring-vs-fp32 8.992e+00  ck1-vs-fp32 3.203e-03  ring-vs-ck1 8.995e+00  FAIL
+[W=4] fp16 full gqa (S=2048, B=2, Hq=8, Hkv=2, D=128): FAIL
+    out ring-vs-fp32 2.540e-01  ck1-vs-fp32 2.217e-04  ring-vs-ck1 2.540e-01  FAIL
+    dq  ring-vs-fp32 2.897e-01  ck1-vs-fp32 3.158e-04  ring-vs-ck1 2.898e-01  FAIL
+    dk  ring-vs-fp32 4.103e-01  ck1-vs-fp32 3.917e-04  ring-vs-ck1 4.104e-01  FAIL
+    dv  ring-vs-fp32 3.423e-01  ck1-vs-fp32 2.276e-04  ring-vs-ck1 3.425e-01  FAIL
+[W=4] bf16 causal mha d64 chunk200 (S=1600, B=1, Hq=8, Hkv=8, D=64): FAIL
+    out ring-vs-fp32 3.641e+00  ck1-vs-fp32 6.612e-03  ring-vs-ck1 3.641e+00  FAIL
+    dq  ring-vs-fp32 2.417e+00  ck1-vs-fp32 1.019e-02  ring-vs-ck1 2.422e+00  FAIL
+    dk  ring-vs-fp32 2.923e+00  ck1-vs-fp32 1.088e-02  ring-vs-ck1 2.919e+00  FAIL
+    dv  ring-vs-fp32 4.681e+00  ck1-vs-fp32 1.156e-02  ring-vs-ck1 4.691e+00  FAIL
+[W=4] bf16 causal gqa long (S=8192, B=1, Hq=8, Hkv=1, D=128): FAIL
+    out ring-vs-fp32 3.453e+00  ck1-vs-fp32 6.688e-03  ring-vs-ck1 3.453e+00  FAIL
+    dq  ring-vs-fp32 2.680e+00  ck1-vs-fp32 1.184e-02  ring-vs-ck1 2.688e+00  FAIL
+    dk  ring-vs-fp32 5.495e+00  ck1-vs-fp32 2.173e-02  ring-vs-ck1 5.490e+00  FAIL
+    dv  ring-vs-fp32 9.662e+00  ck1-vs-fp32 3.525e-02  ring-vs-ck1 9.663e+00  FAIL
+[W=4] 0/6 cases passed (fault injected at step 0)
+W1125 19:23:25.400000 58246 torch/distributed/elastic/multiprocessing/api.py:1028] Sending process 58412 closing signal SIGTERM
+W1125 19:23:25.402000 58246 torch/distributed/elastic/multiprocessing/api.py:1028] Sending process 58413 closing signal SIGTERM
+W1125 19:23:25.402000 58246 torch/distributed/elastic/multiprocessing/api.py:1028] Sending process 58414 closing signal SIGTERM
+E1125 19:23:25.667000 58246 torch/distributed/elastic/multiprocessing/api.py:1002] failed (exitcode: 1) local_rank: 3 (pid: 58415) of binary: /usr/bin/python3
+Traceback (most recent call last):
+  File "/usr/local/bin/torchrun", line 8, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 380, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/torch/distributed/run.py", line 1138, in main
+    run(args)
+  File "/usr/local/lib/python3.12/dist-packages/torch/distributed/run.py", line 1129, in run
+    elastic_launch(
+  File "/usr/local/lib/python3.12/dist-packages/torch/distributed/launcher/api.py", line 197, in __call__
+    return launch_agent(
+           ^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/torch/distributed/launcher/api.py", line 386, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+tests/check_ring.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-11-25_19:23:25
+  host      : 0c8c4aa36ab7
+  rank      : 0 (local_rank: 0)
+  exitcode  : -15 (pid: 58412)  (SIGTERM)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 58412
+[2]:
+  time      : 2026-11-25_19:23:25
+  host      : 0c8c4aa36ab7
+  rank      : 1 (local_rank: 1)
+  exitcode  : -15 (pid: 58413)  (SIGTERM)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 58413
+[3]:
+  time      : 2026-11-25_19:23:25
+  host      : 0c8c4aa36ab7
+  rank      : 2 (local_rank: 2)
+  exitcode  : -15 (pid: 58414)  (SIGTERM)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 58414
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-11-25_19:23:25
+  host      : 0c8c4aa36ab7
+  rank      : 3 (local_rank: 3)
+  exitcode  : 1 (pid: 58415) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================
